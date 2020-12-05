@@ -1,0 +1,230 @@
+---
+title: "AirBnb Dashboard"
+
+output: 
+  flexdashboard::flex_dashboard:
+    source_code: embed
+    vertical_layout: scroll
+    theme: sandstone
+    orientation: column
+
+---
+
+
+
+
+
+
+``` {js}
+// Inverse color of navigation bar.
+$('.navbar-inverse').removeClass('navbar-inverse').addClass('navbar-default');
+```
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse) # metapackage with lots of helpful functions
+library(caret)
+library(highcharter)
+library(ggmap)
+library(leaflet)
+library(plotly)
+library(listviewer)
+library(ggplot2)
+library(DT)
+library(shiny)
+Airbnbdata <- read_csv("AB_NYC_2019.csv")
+```
+
+
+```{r, include=FALSE}
+df<-na.omit(Airbnbdata)
+df <- Airbnbdata %>% mutate(avg_price = price/minimum_nights)
+```
+
+Overview
+=======================================================================
+
+ Column {.tabset .tabset-fade data-width=700 .colored }
+-----------------------------------------------------------------------
+
+### Location
+```{r, fig.height=7}
+leaflet(df %>% select(longitude,neighbourhood_group,neighbourhood,latitude,price)) %>%
+  setView(lng = -73.95, lat = 40.73,zoom = 10) %>%
+   addTiles() %>% 
+  addMarkers(
+  clusterOptions = markerClusterOptions())
+```
+
+Column {data-width=300}
+-----------------------------------------------------------------------
+
+### Number of hotel
+```{r, fig.height=0.25}
+valueBox(nrow(df), icon = "fa-ship", color="rgb(100,100,100)")
+```
+
+### Average price per day
+```{r, fig.height=0.25}
+valueBox(round(mean(df$price, na.rm = T),0), icon = "fa-heart", color="rgb(200,100,100)")
+```
+
+
+### Price by neighbourhood group
+```{r,fig.height=2}
+ggplotly(
+  df %>% 
+    filter(!(abs(avg_price - median(avg_price)) > 2*sd(avg_price))) %>%
+    ggplot(aes(neighbourhood_group, avg_price, fill = neighbourhood_group)) +
+    geom_boxplot() + 
+    labs(title = "Average price by neighbourhood group",
+         x = "neighbourhood", y = "average price per day ($)") +
+    theme_classic() + theme(legend.position = "none")
+)
+```
+
+
+### Price by room type
+```{r,fig.height=2}
+ggplotly(
+  df %>% 
+    filter(!(abs(avg_price - median(avg_price)) > 2*sd(avg_price))) %>%
+    ggplot(aes(room_type, avg_price, fill = room_type)) +
+    geom_boxplot() + 
+    labs(title = "Average price by room type",
+         x = "room type", y = "average price per day ($)") +
+    theme_classic() + theme(legend.position = "none")
+)
+```
+
+Room type
+=======================================================================
+
+ Column {data-width=700 .colored }
+-----------------------------------------------------------------------
+
+### Average price per day of common room
+```{r, fig.height=2.5}
+hchart(df$avg_price[df$avg_price < 500], color = "lightcoral", name = "Price per day") %>%
+  hc_title(text = "Average price of common room") %>%
+  hc_add_theme(hc_theme_ffx())
+```
+
+### Average price per day of high-class room
+```{r,fig.height=2.5}
+hchart(df$avg_price[df$avg_price >= 500], color = "palevioletred", name = "Price per day") %>%
+  hc_title(text = "Average price of high-class room") %>%
+  hc_add_theme(hc_theme_ffx())
+```
+
+Column {data-width=300}
+-----------------------------------------------------------------------
+
+### Number of common rooms
+```{r,fig.height=0.25}
+valueBox(nrow(df %>% 
+                filter(avg_price < 500)), icon = "fa-heart",color="#B71C1C")
+```
+
+
+### Average price per day of common rooms
+```{r, fig.height=0.25}
+valueBox(round(mean(df$avg_price[df$avg_price < 500]),0), icon = "fa-heart",color="#B71C1C")
+```
+
+### Number of high-class room
+```{r, fig.height=0.25}
+valueBox(nrow(df %>% 
+                filter(avg_price >= 500)), icon = "fa-heart",color="#006699")
+```
+
+### Average price per day of high-class rooms
+```{r, fig.height=0.25}
+valueBox(round(mean(df$avg_price[df$avg_price >= 500]),0), icon = "fa-heart",color="#006699")
+```
+
+### Availability
+```{r, fig.height=3}
+df1<- df %>%
+  filter(availability_365 !=0)
+hchart(df1$availability_365, breaks = 30, color = "salmon", name = "Availability") %>%
+  hc_title(text = "Overall room availability") %>%
+  hc_add_theme(hc_theme_ffx())
+```
+
+Price variations
+=======================================================================
+
+ Column {data-width=500 .colored }
+-----------------------------------------------------------------------
+
+### Price Variation in NYC Boroughs over Number of Reviews
+
+```{r, fig.height=6}
+upper.limit <- quantile(df$price)[4] + 2.5*IQR(df$price)
+lower.limit <- quantile(df$price)[2] - 0.5*IQR(df$price)
+
+bp_apt<-ggplot(df,aes(x=neighbourhood_group,y=price, fill=neighbourhood_group)) +
+  labs(x="Neighbourhood Group", y="Price") +
+  geom_boxplot(aes(frame= number_of_reviews))+coord_cartesian(ylim=c(lower.limit, upper.limit))+
+  theme(axis.title.x = element_text(face="bold", size=14)) +
+  theme(axis.title.y = element_text(face="bold", size=14)) +
+  theme(legend.title = element_blank())
+
+bp_apt <- bp_apt %>% animation_opts(
+  1000, easing = "elastic", redraw = FALSE
+)
+
+bp_apt <- bp_apt  %>% animation_slider(
+  currentvalue = list(prefix = "Number of Reviews ", font = list(color="cyan2"))
+)
+
+
+ggplotly(bp_apt)
+
+```
+
+Column {data-width=500 .colored }
+-----------------------------------------------------------------------
+### Plotly Aggregations of Price for Different NYC Boroughs
+
+```{r, fig.height=6}
+
+s <- schema()
+agg <- s$transforms$aggregate$attributes$aggregations$items$aggregation$func$values
+
+
+l = list()
+for (i in 1:length(agg)) {
+  ll = list(method = "restyle",
+            args = list('transforms[0].aggregations[0].func', agg[i]),
+            label = agg[i]) 
+  l[[i]] = ll
+}
+
+anim <- plot_ly(
+  type = 'bar',
+  x = df$neighbourhood_group,
+  y = df$price,
+  mode = 'markers',
+  marker = list(size = 12,color = 'cyan2'),
+  transforms = list(
+    list(
+      type = 'aggregate',
+      groups = df$neighbourhood_group,
+      aggregations = list(
+        list(
+          target = 'y', func = 'avg', enabled = T)))))
+anim <- anim %>% layout(xaxis = list(title = '<b>Neighbour Group<b>'),
+  yaxis = list(title = '<b>Price ($)<b>'),
+  updatemenus = list(list(
+      x = 1.0,
+      y = 1.0,
+      xref = 'paper',
+      yref = 'paper',
+      yanchor = 'top',
+      buttons = l
+    )))
+anim
+
+```
